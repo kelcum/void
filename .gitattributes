@@ -4,3 +4,4 @@
 *.cmd text eol=crlf
 *.png binary
 *.gif binary
+*.icns binary

@@ -11,6 +11,11 @@ Clean junk, rip out apps *and* their leftovers, watch your system live, and laun
 
 <br>
 
+[![Stars](https://img.shields.io/github/stars/kelcum/void?style=for-the-badge&logo=github&label=stars&color=facc15)](https://github.com/kelcum/void/stargazers)
+[![Release](https://img.shields.io/github/v/release/kelcum/void?style=for-the-badge&color=22d3ee&label=release)](https://github.com/kelcum/void/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/kelcum/void/total?style=for-the-badge&color=a855f7)](https://github.com/kelcum/void/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/kelcum/void/build.yml?style=for-the-badge&label=tests)](https://github.com/kelcum/void/actions)
+
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-beta-111111?style=for-the-badge&logo=apple&logoColor=white)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?style=for-the-badge&logo=powershell&logoColor=white)
@@ -42,13 +47,34 @@ Then just type **`void`**. That's it.
 > On Windows it also works from **Win + R → `void`** and adds a **VOID** shortcut to your desktop and Start menu.
 > On macOS you get a **`VOID.command`** on your desktop you can double-click.
 
+### 📦 Or download it
+
+| | |
+|---|---|
+| 🍎 **macOS app** | **[VOID-macOS.dmg](https://github.com/kelcum/void/releases/latest/download/VOID-macOS.dmg)**: open it, drag **VOID** into **Applications** |
+| 🪟 **Windows** | **[VOID-windows.zip](https://github.com/kelcum/void/releases/latest/download/VOID-windows.zip)**: unzip, double-click **`Install VOID.cmd`** |
+
 <details>
-<summary>Prefer to install from a download?</summary>
+<summary>🍎 First time opening the Mac app?</summary>
 
-Clone or download this repo, then:
+<br>
 
-- **Windows**: double-click `Install VOID.cmd`
-- **macOS**: run `bash install.sh`
+VOID is free and open source, so it isn't notarized by Apple (that needs a paid developer account). The first time:
+
+1. Open **VOID**. macOS says it can't check it for malware. Click **Done**.
+2. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+3. When VOID asks to control **Terminal**, click **Allow**, since that's where its menu runs.
+
+After that it opens like any other app. Terminal fans: `xattr -dr com.apple.quarantine /Applications/VOID.app`
+
+</details>
+
+<details>
+<summary>🪟 SmartScreen popped up on Windows?</summary>
+
+<br>
+
+Windows warns about new downloads it hasn't seen much of. Click **More info → Run anyway**. Or use the one-line install above, which doesn't trigger it.
 
 </details>
 
@@ -183,9 +209,13 @@ Removes VOID, its shortcuts, the `void` command, and its history/backups.
   [dupeGuru](https://github.com/arsenetar/dupeguru) ·
   [KnockKnock](https://github.com/objective-see/KnockKnock)
 
-> **macOS is in beta.** It's written for the stock bash that ships with every Mac and uses only built-in macOS commands, but it hasn't had much real-world mileage yet. If something looks off, [open an issue](../../issues).
+> **macOS is in beta.** It's written for the stock bash that ships with every Mac and uses only built-in macOS commands. Every release is tested on a real Mac by the [build workflow](../../actions), but it hasn't had much real-world mileage yet. If something looks off, [open an issue](../../issues).
 
 <div align="center">
+
+<br>
+
+### ⭐ If VOID freed up some space for you, drop a star. It helps other people find it.
 
 <br>
 

@@ -7,7 +7,7 @@
 #    void             open the menu
 #    void <command>   jump straight to a tool   (void help for the list)
 
-VOID_VERSION="1.2"
+VOID_VERSION="1.3"
 VOID_HOME="${VOID_HOME:-$HOME/.void}"
 HISTORY_FILE="$VOID_HOME/history.log"
 THEME_FILE="$VOID_HOME/theme"
@@ -29,7 +29,7 @@ if [[ $CMD == help || $CMD == h || $CMD == '?' ]]; then
     for i in "${!COMMANDS[@]}"; do printf '  %-18s%s\n' "void ${COMMANDS[i]}" "${COMMAND_DESC[i]}"; done
     echo; exit 0
 fi
-if [[ -n $CMD && $CMD != __render ]]; then
+if [[ -n $CMD && $CMD != __render && $CMD != __selftest ]]; then
     known=0; for c in "${COMMANDS[@]}"; do [[ $c == "$CMD" ]] && known=1; done
     (( known )) || { echo "  unknown command '$CMD' - try: void help"; exit 1; }
 fi
@@ -196,7 +196,7 @@ du_kb() {  # paths... -> KB (total size)
     done
     KB=$total
 }
-free_kb() { df -k "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $4}'; }
+free_kb() { df -kP "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $4 + 0}'; }
 data_volume() { [[ -d /System/Volumes/Data ]] && echo /System/Volumes/Data || echo /; }
 
 say()  { printf '%s  %s%s%s %s%s%s\n' "$P" "$2" "$1" "$R" "$C_TEXT" "$3" "$R"; }
@@ -345,8 +345,9 @@ sys_info() {
     SYS_OS="macOS $codename $v"; SYS_OS=${SYS_OS//  / }
     SYS_CPU=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
     SYS_CPU=${SYS_CPU//(R)/}; SYS_CPU=${SYS_CPU//(TM)/}; SYS_CPU=${SYS_CPU%% @*}
-    SYS_CORES=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
-    SYS_RAM=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+    SYS_CORES=$(sysctl -n hw.ncpu 2>/dev/null); [[ $SYS_CORES =~ ^[0-9]+$ ]] || SYS_CORES=1
+    SYS_RAM=$(sysctl -n hw.memsize 2>/dev/null); [[ $SYS_RAM =~ ^[0-9]+$ ]] || SYS_RAM=0
+    SYS_RAM=$(( SYS_RAM / 1073741824 ))
     SYS_MODEL=$(sysctl -n hw.model 2>/dev/null)
 }
 
@@ -354,9 +355,10 @@ drive_info() {  # DRV_NAME / DRV_SIZE / DRV_FREE (KB): the startup disk plus the
     DRV_NAME=(); DRV_SIZE=(); DRV_FREE=()
     local dev size usedk avail cap mnt name
     while read -r dev size usedk avail cap mnt name; do
+        [[ $size =~ ^[0-9]+$ && $avail =~ ^[0-9]+$ ]] || continue    # skip anything df printed oddly
         DRV_NAME+=("${name:-disk}"); DRV_SIZE+=("$size"); DRV_FREE+=("$avail")
-    done < <(df -k "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $1, $2, $3, $4, $5, $6, "Macintosh HD"}'
-             df -k 2>/dev/null | awk '$NF ~ /^\/Volumes\// {n=$NF; sub(/^\/Volumes\//, "", n); print $1, $2, $3, $4, $5, $6, n}' | head -1)
+    done < <(df -kP "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $1, $2, $3, $4, $5, "-", "Macintosh HD"}'
+             df -kP 2>/dev/null | awk '{ i = index($0, "/Volumes/"); if (i) { print $1, $2, $3, $4, $5, "-", substr($0, i + 9); exit } }')
 }
 
 J_NAME=("App caches" "Logs" "Xcode DerivedData" "Xcode device support" "Simulator caches" "npm cache" "Discord cache" "Trash")
@@ -843,10 +845,13 @@ status_stats() {
     vm=$(vm_stat 2>/dev/null)
     ST_MEM_USED=$(printf '%s\n' "$vm" | awk '/page size of/ {ps=$8} /Pages active/ {a=$3} /Pages wired down/ {w=$4}
                   /Pages occupied by compressor/ {c=$5} END {gsub(/\./,"",a); gsub(/\./,"",w); gsub(/\./,"",c); printf "%d", (a+w+c)*ps/1024}')
-    ST_MEM_TOTAL=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 1024) / 1024 ))
+    ST_MEM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null); [[ $ST_MEM_TOTAL =~ ^[0-9]+$ ]] || ST_MEM_TOTAL=1024
+    ST_MEM_TOTAL=$(( ST_MEM_TOTAL / 1024 ))
     ST_MEM_PCT=$(( ST_MEM_USED * 100 / (ST_MEM_TOTAL > 0 ? ST_MEM_TOTAL : 1) ))
-    line=$(df -k "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $2, $4}'); set -- $line
-    ST_DISK_FREE_PCT=$(( ${2:-1} * 100 / ${1:-1} ))
+    local dsize davail
+    read -r dsize davail <<< "$(df -kP "$(data_volume)" 2>/dev/null | awk 'NR==2 {print $2, $4}')"
+    [[ $dsize =~ ^[0-9]+$ && $davail =~ ^[0-9]+$ ]] && (( dsize > 0 )) || { dsize=1; davail=1; }
+    ST_DISK_FREE_PCT=$(( davail * 100 / dsize ))
     line=$(netstat -ibn 2>/dev/null | awk '$1 ~ /^en/ && $3 ~ /Link/ {rx+=$7; tx+=$10} END {printf "%d %d", rx, tx}'); set -- $line
     rx=${1:-0}; tx=${2:-0}; now=$SECONDS; dt=$(( now - NET_PREV_T )); (( dt < 1 )) && dt=1
     if (( NET_PREV_T > 0 )); then ST_DOWN=$(( (rx - NET_PREV_RX) / dt )); ST_UP=$(( (tx - NET_PREV_TX) / dt )); else ST_DOWN=0; ST_UP=0; fi
@@ -854,9 +859,11 @@ status_stats() {
     NET_PREV_RX=$rx; NET_PREV_TX=$tx; NET_PREV_T=$now
     ST_LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2, $3, $4}')
     boot=$(sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,]+' '{print $4}')
-    ST_UP_S=$(( $(date +%s) - ${boot:-$(date +%s)} ))
+    [[ $boot =~ ^[0-9]+$ ]] || boot=$(date +%s)
+    ST_UP_S=$(( $(date +%s) - boot ))
     line=$(pmset -g batt 2>/dev/null | grep -Eo '[0-9]+%;[^;]+' | head -1)
-    ST_BATT=${line%%\%*}; ST_BATT_STATE=${line#*; }; [[ $line == *%* ]] || { ST_BATT=''; ST_BATT_STATE=''; }
+    ST_BATT=${line%%\%*}; ST_BATT_STATE=${line#*; }
+    [[ $ST_BATT =~ ^[0-9]+$ ]] || { ST_BATT=''; ST_BATT_STATE=''; }
     ST_TOP=()
     while IFS= read -r line; do ST_TOP+=("$line"); done < <(ps -Aceo pcpu=,rss=,comm= 2>/dev/null | awk -v cores="$SYS_CORES" '
         { cpu=$1; rss=$2; $1=""; $2=""; sub(/^ +/, ""); c[$0]+=cpu; m[$0]+=rss; n[$0]++ }
@@ -1180,6 +1187,28 @@ if [[ $CMD == __render ]]; then
     health; status_lines 8 12 10 18 25 22 30 41 38 29 24 33 47 52 44 36 28 31 26 23 19 24 35 61 77 58 42 33 27 18
     echo '=== mac-status ==='
     for line in "${STATUS[@]}"; do printf '%s%s\n' "$P" "$line"; done
+    exit 0
+fi
+
+# ── self test: runs the real data collectors once (used by the release workflow on a Mac) ──
+if [[ $CMD == __selftest ]]; then
+    COLS=100; ROWS=40; pad_for "$BLOCK_W"; P=$PAD
+    echo "bash:   $BASH_VERSION"
+    sys_info;   echo "sys:    $SYS_OS | $SYS_CPU | $SYS_CORES cores | $SYS_RAM GB | $SYS_MODEL"
+    drive_info; for k in "${!DRV_NAME[@]}"; do fmt_kb "${DRV_FREE[k]}"; f=$SIZE; fmt_kb "${DRV_SIZE[k]}"; echo "drive:  ${DRV_NAME[k]} - $f free of $SIZE"; done
+    for i in "${!J_NAME[@]}"; do measure_spot "$i"; fmt_kb "${J_KB[i]}"; echo "junk:   ${J_NAME[i]} = $SIZE"; done
+    junk_total
+    status_stats; sleep 1; status_stats; health
+    echo "status: cpu $ST_CPU% · mem $ST_MEM_PCT% · disk free $ST_DISK_FREE_PCT% · up ${ST_UP_S}s · load $ST_LOAD · battery '${ST_BATT}' · health $HEALTH"
+    for line in "${ST_TOP[@]}"; do echo "top:    ${line//$'\t'/ | }"; done
+    launch_dirs; n=0; for d in "${LAUNCH_DIRS[@]}"; do for f in "$d"/*.plist; do plist_program "$f"; n=$(( n + 1 )); done; done
+    echo "launch: read $n launch items"
+    for i in "${!T_NAME[@]}"; do if tool_ready "$i"; then s=ready; else s=get; fi; echo "tool:   ${T_NAME[i]} $s"; done
+    is_random GIuychYBxsQ && echo "random: GIuychYBxsQ -> flagged"; is_random GitHubDesktop || echo "random: GitHubDesktop -> fine"
+    main_lines; status_lines 10 20 30
+    echo "render: ${#MAIN[@]} main lines, ${#STATUS[@]} status lines"
+    for line in "${MAIN[@]}" "${STATUS[@]}"; do vislen "$line"; (( VL > COLS )) && { echo "FAIL: line wider than the screen ($VL)"; exit 1; }; done
+    echo "selftest ok"
     exit 0
 fi
 

@@ -1,0 +1,63 @@
+name: build
+
+# every push: test both versions on real machines
+# a v* tag: also build VOID.app + the .dmg and publish a release
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checks with the bash 3.2 every Mac ships with
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n mac/void.sh
+          /bin/bash -n install.sh
+          /bin/bash -n mac/build-app.sh
+          export VOID_HOME="$RUNNER_TEMP/void"
+          /bin/bash mac/void.sh help
+          /bin/bash mac/void.sh __selftest
+          /bin/bash mac/void.sh __render > render.txt
+          grep -q STORAGE render.txt
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checks with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\windows\void.ps1", [ref]$null, [ref]$errors) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors; exit 1 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\void.ps1 help
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\void.ps1 -SelfTest
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test-macos, test-windows]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build VOID.app and VOID-macOS.dmg
+        run: bash mac/build-app.sh "${GITHUB_REF_NAME#v}"
+      - name: Zip the Windows version
+        run: |
+          mkdir -p pkg/VOID
+          cp -R install.ps1 "Install VOID.cmd" windows README.md LICENSE pkg/VOID/
+          (cd pkg && zip -qr ../dist/VOID-windows.zip VOID)
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/VOID-macOS.dmg dist/VOID-windows.zip \
+            --title "VOID $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md
