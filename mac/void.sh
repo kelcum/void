@@ -661,7 +661,25 @@ collect_apps() {
         APP_PATH+=("$a"); APP_NAME+=("$(basename "$a" .app)"); APP_BID+=("$v"); APP_EXEC+=("$k"); APP_CFNAME+=("$line")
     done < <(printf '%s\n' "${list[@]}" | sort -u)
     (( ${#APP_PATH[@]} )) || return 0
-    while read -r k a; do APP_KB+=("$k"); done < <(du -sk "${APP_PATH[@]}" 2>/dev/null)
+    # sizes: Spotlight already knows most of them (instant). The rest get measured in parallel for up to
+    # 5 seconds - adding up every file in something like Xcode takes far longer, so those show "?"
+    while IFS= read -r -d '' v || [[ -n $v ]]; do
+        if [[ $v =~ ^[0-9]+$ ]]; then APP_KB+=("$(( v / 1024 ))"); else APP_KB+=(-1); fi
+    done < <(mdls -raw -name kMDItemPhysicalSize "${APP_PATH[@]}" 2>/dev/null)
+    local tmp waited=0; tmp=$(mktemp -d 2>/dev/null || echo "/tmp/void.$$"); mkdir -p "$tmp"
+    for i in "${!APP_PATH[@]}"; do
+        (( ${APP_KB[i]:--1} >= 0 )) && continue
+        du -sk "${APP_PATH[i]}" > "$tmp/$i" 2>/dev/null &
+    done
+    while (( waited < 50 )) && [[ -n $(jobs -rp) ]]; do sleep 0.1; waited=$(( waited + 1 )); done
+    kill $(jobs -rp) 2>/dev/null; wait 2>/dev/null
+    for i in "${!APP_PATH[@]}"; do
+        (( ${APP_KB[i]:--1} >= 0 )) && continue
+        k=-1; [[ -s $tmp/$i ]] && read -r k v < "$tmp/$i"
+        [[ $k =~ ^[0-9]+$ ]] || k=-1
+        APP_KB[i]=$k
+    done
+    rm -rf "$tmp"
     while IFS= read -r -d '' v || [[ -n $v ]]; do
         k=0; [[ $v == 20* ]] && k=$(date -j -f '%Y-%m-%d %H:%M:%S %z' "$v" +%s 2>/dev/null || echo 0)
         APP_USED+=("$k")
@@ -671,7 +689,7 @@ collect_apps() {
     while IFS=$'\t' read -r v i; do order+=("$i"); done < <(for i in "${!APP_PATH[@]}"; do printf '%s\t%s\n' "${APP_USED[i]:-0}" "$i"; done | sort -n)
     for i in "${order[@]}"; do
         p+=("${APP_PATH[i]}"); n+=("${APP_NAME[i]}"); b+=("${APP_BID[i]}"); x+=("${APP_EXEC[i]}")
-        c+=("${APP_CFNAME[i]}"); s+=("${APP_KB[i]:-0}"); u+=("${APP_USED[i]:-0}")
+        c+=("${APP_CFNAME[i]}"); s+=("${APP_KB[i]:--1}"); u+=("${APP_USED[i]:-0}")
     done
     APP_PATH=("${p[@]}"); APP_NAME=("${n[@]}"); APP_BID=("${b[@]}"); APP_EXEC=("${x[@]}")
     APP_CFNAME=("${c[@]}"); APP_KB=("${s[@]}"); APP_USED=("${u[@]}")
@@ -857,10 +875,10 @@ do_uninstall() {
         IT_TEXT=(); IT_ON=(); IT_KB=(); idx=()
         for i in "${!APP_PATH[@]}"; do
             if [[ -n $lq ]]; then lower "${APP_NAME[i]} ${APP_BID[i]}"; [[ $LOWER == *"$lq"* ]] || continue; fi
-            fmt_kb "${APP_KB[i]:-0}"; sz=$SIZE
+            if (( ${APP_KB[i]:--1} >= 0 )); then fmt_kb "${APP_KB[i]}"; sz=$SIZE; else sz='?'; fi
             if (( ${APP_USED[i]:-0} > 0 )); then fmt_age "${APP_USED[i]}"; else AGE='never used'; fi
             limit "${APP_NAME[i]}" 32; spaces "$(( 10 - ${#sz} ))"
-            IT_TEXT+=("${C_TEXT}${LIMIT}${R}${C_DIM}${SP}${sz}   ${AGE}${R}"); IT_ON+=(0); IT_KB+=("${APP_KB[i]:-0}"); idx+=("$i")
+            IT_TEXT+=("${C_TEXT}${LIMIT}${R}${C_DIM}${SP}${sz}   ${AGE}${R}"); IT_ON+=(0); IT_KB+=("$(( ${APP_KB[i]:-0} > 0 ? ${APP_KB[i]:-0} : 0 ))"); idx+=("$i")
         done
         if (( ${#idx[@]} == 0 )); then echo; warn "nothing matches '$q'"; wait_back; continue; fi
         APP_IDX=("${idx[@]}")
@@ -1427,7 +1445,8 @@ if [[ $CMD == __selftest ]]; then
     t0=$SECONDS; collect_apps
     echo "apps:   found ${#APP_PATH[@]} apps in $(( SECONDS - t0 ))s"
     for (( i = 0; i < ${#APP_PATH[@]} && i < 4; i++ )); do
-        fmt_kb "${APP_KB[i]}"; if (( ${APP_USED[i]:-0} > 0 )); then fmt_age "${APP_USED[i]}"; else AGE='never used'; fi
+        if (( ${APP_KB[i]:--1} >= 0 )); then fmt_kb "${APP_KB[i]}"; else SIZE='? (still counting)'; fi
+        if (( ${APP_USED[i]:-0} > 0 )); then fmt_age "${APP_USED[i]}"; else AGE='never used'; fi
         echo "app:    ${APP_NAME[i]} | ${APP_BID[i]:-no id} | $SIZE | $AGE | ${APP_PATH[i]}"
     done
     # deep-scan test: a throwaway fake app with leftovers where real apps leave them, plus look-alikes that must NOT match
