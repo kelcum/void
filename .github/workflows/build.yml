@@ -28,6 +28,7 @@ jobs:
           time /bin/bash mac/void.sh __render > render.txt 2> render.err || echo "render exited with $?"
           echo "--- stderr:"; cat render.err
           echo "--- $(wc -l < render.txt) lines, STORAGE found: $(grep -c STORAGE render.txt || true)"
+          perl -pe 's/\e\[[0-9;]*m//g' render.txt | head -45
           grep -q STORAGE render.txt
 
   test-windows:
