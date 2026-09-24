@@ -7,7 +7,7 @@
 #    void             open the menu
 #    void <command>   jump straight to a tool   (void help for the list)
 
-VOID_VERSION="1.3"
+VOID_VERSION="1.4"
 VOID_HOME="${VOID_HOME:-$HOME/.void}"
 HISTORY_FILE="$VOID_HOME/history.log"
 THEME_FILE="$VOID_HOME/theme"
@@ -637,87 +637,269 @@ do_clean() {
     wait_back
 }
 
-# ── 2. uninstall (+ leftovers) ─────────────────────────────────────────
-LEFTOVER_DIRS=("Application Support" Caches Preferences "Saved Application State" Containers "Group Containers"
-               Logs HTTPStorages WebKit LaunchAgents "Application Scripts" Cookies)
+# ── 2. uninstall (+ a deep leftover scan) ──────────────────────────────
+lower() { LOWER=$(printf '%s' "$1" | tr 'A-Z' 'a-z'); }
 
-find_leftovers() {  # app_name bundle_id -> appends to LO_PATH / LO_KB
-    local name=$1 bid=$2 d entry base lname lbase squashed
-    lname=$(printf '%s' "$name" | tr 'A-Z' 'a-z'); squashed=${lname// /}
-    for d in "${LEFTOVER_DIRS[@]}"; do
-        for entry in "$HOME/Library/$d"/*; do
-            base=${entry##*/}; lbase=$(printf '%s' "$base" | tr 'A-Z' 'a-z')
-            if [[ -n $bid && $base == *"$bid"* ]] || { (( ${#lname} >= 4 )) && [[ $lbase == "$lname" || $lbase == "$squashed" ]]; }; then
-                du_kb "$entry"; LO_PATH+=("$entry"); LO_KB+=("$KB")
-            fi
-        done
+# every app: the usual folders (+ one level of subfolders) and anything Spotlight knows about elsewhere
+# -> APP_PATH APP_NAME APP_BID APP_EXEC APP_CFNAME APP_KB APP_USED (epoch, 0 = never)
+collect_apps() {
+    local a list=() v i k line meta
+    for a in /Applications/*.app /Applications/*/*.app "$HOME/Applications"/*.app "$HOME/Applications"/*/*.app; do list+=("$a"); done
+    while IFS= read -r a; do
+        case $a in /System/*|/Library/*|/private/*|/usr/*|/opt/*|/Volumes/*|"$HOME/Library/"*|"$HOME/.Trash/"*) continue ;; esac
+        list+=("$a")
+    done < <(mdfind "kMDItemContentType == 'com.apple.application-bundle'" 2>/dev/null)
+    APP_PATH=(); APP_NAME=(); APP_BID=(); APP_EXEC=(); APP_CFNAME=(); APP_KB=(); APP_USED=()
+    while IFS= read -r a; do
+        [[ -d $a/Contents ]] || continue
+        [[ ${a%/*} == *.app* ]] && continue                                  # helpers inside another app
+        [[ $(stat -f %Sf "$a" 2>/dev/null) == *restricted* ]] && continue    # protected by macOS (Safari...)
+        meta=$(/usr/libexec/PlistBuddy -c Print "$a/Contents/Info.plist" 2>/dev/null | awk -F' = ' '
+            /^    CFBundleIdentifier = / {b=$2} /^    CFBundleExecutable = / {x=$2} /^    CFBundleName = / {n=$2}
+            END {printf "%s\t%s\t%s", b, x, n}')
+        IFS=$'\t' read -r v k line <<< "$meta"
+        APP_PATH+=("$a"); APP_NAME+=("$(basename "$a" .app)"); APP_BID+=("$v"); APP_EXEC+=("$k"); APP_CFNAME+=("$line")
+    done < <(printf '%s\n' "${list[@]}" | sort -u)
+    (( ${#APP_PATH[@]} )) || return 0
+    while read -r k a; do APP_KB+=("$k"); done < <(du -sk "${APP_PATH[@]}" 2>/dev/null)
+    while IFS= read -r -d '' v || [[ -n $v ]]; do
+        k=0; [[ $v == 20* ]] && k=$(date -j -f '%Y-%m-%d %H:%M:%S %z' "$v" +%s 2>/dev/null || echo 0)
+        APP_USED+=("$k")
+    done < <(mdls -raw -name kMDItemLastUsedDate "${APP_PATH[@]}" 2>/dev/null)
+    # oldest-used first, like Mole - that's where the forgotten apps are
+    local order=() p=() n=() b=() x=() c=() s=() u=()
+    while IFS=$'\t' read -r v i; do order+=("$i"); done < <(for i in "${!APP_PATH[@]}"; do printf '%s\t%s\n' "${APP_USED[i]:-0}" "$i"; done | sort -n)
+    for i in "${order[@]}"; do
+        p+=("${APP_PATH[i]}"); n+=("${APP_NAME[i]}"); b+=("${APP_BID[i]}"); x+=("${APP_EXEC[i]}")
+        c+=("${APP_CFNAME[i]}"); s+=("${APP_KB[i]:-0}"); u+=("${APP_USED[i]:-0}")
     done
+    APP_PATH=("${p[@]}"); APP_NAME=("${n[@]}"); APP_BID=("${b[@]}"); APP_EXEC=("${x[@]}")
+    APP_CFNAME=("${c[@]}"); APP_KB=("${s[@]}"); APP_USED=("${u[@]}")
+}
+
+prune_apps() {  # drop apps that are gone now
+    local i p=() n=() b=() x=() c=() s=() u=()
+    for i in "${!APP_PATH[@]}"; do
+        [[ -e ${APP_PATH[i]} ]] || continue
+        p+=("${APP_PATH[i]}"); n+=("${APP_NAME[i]}"); b+=("${APP_BID[i]}"); x+=("${APP_EXEC[i]}")
+        c+=("${APP_CFNAME[i]}"); s+=("${APP_KB[i]}"); u+=("${APP_USED[i]}")
+    done
+    APP_PATH=("${p[@]}"); APP_NAME=("${n[@]}"); APP_BID=("${b[@]}"); APP_EXEC=("${x[@]}")
+    APP_CFNAME=("${c[@]}"); APP_KB=("${s[@]}"); APP_USED=("${u[@]}")
+}
+
+# everywhere apps leave things behind. The /Library ones are shared by all users and need your password.
+LEFTOVER_DIRS=(
+    "$HOME/Library/Application Support" "$HOME/Library/Caches" "$HOME/Library/Preferences" "$HOME/Library/Preferences/ByHost"
+    "$HOME/Library/Saved Application State" "$HOME/Library/Containers" "$HOME/Library/Group Containers"
+    "$HOME/Library/Logs" "$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/HTTPStorages" "$HOME/Library/WebKit"
+    "$HOME/Library/Cookies" "$HOME/Library/LaunchAgents" "$HOME/Library/Application Scripts"
+    "$HOME/Library/Autosave Information" "$HOME/Library/Application Support/CrashReporter"
+    "$HOME/Library/PreferencePanes" "$HOME/Library/Services" "$HOME/Library/Internet Plug-Ins" "$HOME/Library/Input Methods"
+    "/Library/Application Support" "/Library/Caches" "/Library/Preferences" "/Library/LaunchAgents" "/Library/LaunchDaemons"
+    "/Library/PrivilegedHelperTools" "/Library/Logs" "/Library/Logs/DiagnosticReports" "/Library/Internet Plug-Ins"
+    "/Library/PreferencePanes" "/Library/Audio/Plug-Ins/HAL" "/Library/Audio/Plug-Ins/Components" "/Users/Shared"
+)
+# names too common to match on their own (the bundle id still matches)
+GENERIC_NAMES=' music data app apps cache caches logs log support helper helpers update updater launcher electron main java python node shared temp config settings '
+
+# is this name (lowercase) exactly the bundle id, or the bundle id with a dotted prefix/suffix?
+#   com.hnc.discord.plist, group.com.hnc.discord, com.hnc.discord.helper - yes;  com.hnc.discordcanary - no
+bid_match() { [[ $1 == "$2" || $1 == "$2".* || $1 == *."$2" || $1 == *."$2".* ]]; }
+
+lo_add() {  # path why [kind]
+    local p=$1 x
+    if [[ ${3:-file} == file ]]; then
+        [[ -e $p || -L $p ]] || return 0
+        [[ $p == "$HOME/.Trash"* || $p == "$VOID_HOME"* ]] && return 0
+        for x in "${LO_PATH[@]}"; do [[ $p == "$x" || $p == "$x"/* ]] && return 0; done   # already covered
+        du_kb "$p"
+    else
+        KB=0
+    fi
+    LO_PATH+=("$p"); LO_KB+=("$KB"); LO_WHY+=("$2"); LO_KIND+=("${3:-file}")
+}
+
+find_leftovers() {  # app index -> appends to LO_PATH LO_KB LO_WHY LO_KIND
+    local i=$1 name=${APP_NAME[$1]} bid lname cand x dup d orig low v sub is_crash m variants=() dirs=("${LEFTOVER_DIRS[@]}")
+    lower "${APP_BID[i]}"; bid=$LOWER
+    lower "$name"; lname=$LOWER
+    # name variants: the display name, without spaces, and the bundle's own name / executable when they're part of it
+    # (VS Code keeps its data in "Code", not "Visual Studio Code")
+    for cand in "$lname" "${lname// /}" "${APP_CFNAME[i]}" "${APP_EXEC[i]}"; do
+        lower "$cand"; cand=$LOWER
+        (( ${#cand} >= 4 )) || continue
+        [[ $GENERIC_NAMES == *" $cand "* ]] && continue
+        [[ $lname == *"$cand"* || ${lname// /} == *"$cand"* ]] || continue
+        dup=0; for x in "${variants[@]}"; do [[ $x == "$cand" ]] && dup=1; done
+        (( dup )) || variants+=("$cand")
+    done
+    x=$(getconf DARWIN_USER_CACHE_DIR 2>/dev/null); [[ -n $x ]] && dirs+=("${x%/}")
+    x=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null);  [[ -n $x ]] && dirs+=("${x%/}")
+    for d in "${dirs[@]}"; do
+        [[ -d $d ]] || continue
+        is_crash=0; [[ $d == */DiagnosticReports || $d == */CrashReporter ]] && is_crash=1
+        while IFS=$'\t' read -r orig low; do
+            [[ -z $orig ]] && continue
+            WHY=''
+            if (( ${#bid} >= 6 )) && bid_match "$low" "$bid"; then WHY='bundle id'
+            else
+                for v in "${variants[@]}"; do
+                    if [[ $low == "$v" || ${low%.*} == "$v" ]]; then WHY='app name'; break; fi
+                    if (( is_crash )) && [[ $low == "$v"_* || $low == "$v"-* ]]; then WHY='crash report'; break; fi
+                done
+            fi
+            [[ -n $WHY ]] && lo_add "$d/$orig" "$WHY"
+        done < <(ls -1A "$d" 2>/dev/null | awk '{ print $0 "\t" tolower($0) }')
+        # vendor folders: Application Support/<Vendor>/<App>
+        if [[ $d == *"/Application Support" ]]; then
+            shopt -s nocaseglob
+            for sub in "$d"/*/; do
+                for v in "${variants[@]}"; do
+                    m=("$sub"[${v:0:1}]"${v:1}")
+                    (( ${#m[@]} )) && lo_add "${m[0]%/}" 'vendor folder'
+                done
+            done
+            shopt -u nocaseglob
+        fi
+    done
+    # config folders in your home: ~/.name and ~/.config/name
+    shopt -s nocaseglob
+    for v in "${variants[@]}"; do
+        m=("$HOME"/.[${v:0:1}]"${v:1}" "$HOME"/.config/[${v:0:1}]"${v:1}")
+        for x in "${m[@]}"; do lo_add "$x" 'config folder'; done
+    done
+    shopt -u nocaseglob
+    # Spotlight catch-all: anything else named after the bundle id
+    if (( ${#bid} >= 8 )); then
+        while IFS= read -r x; do
+            case $x in "$HOME/Library/Mobile Documents"/*|*.app|*.app/*) continue ;; esac
+            [[ $x == "$HOME"/* || $x == /Library/* ]] || continue
+            lower "${x##*/}"; bid_match "$LOWER" "$bid" && lo_add "$x" spotlight
+        done < <(mdfind -name "${APP_BID[i]}" 2>/dev/null)
+    fi
+    # installer receipts (pkgutil) and a login item with the app's name
+    if (( ${#bid} >= 6 )); then
+        while IFS= read -r x; do
+            lower "$x"; bid_match "$LOWER" "$bid" && lo_add "$x" 'pkg receipt' receipt
+        done < <(pkgutil --pkgs 2>/dev/null | grep -iF "$bid")
+    fi
+    while IFS= read -r x; do
+        x=${x# }; [[ $x == "$name" ]] && lo_add "$x" 'login item' login
+    done < <(osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | tr ',' '\n')
+}
+
+lo_display() {  # index -> DISP (short, readable path)
+    local p=${LO_PATH[$1]}
+    case ${LO_KIND[$1]} in
+        receipt) DISP="receipt: $p" ;;
+        login)   DISP="login item: $p" ;;
+        *)       DISP=${p/#$HOME/\~}
+                 [[ $p == /var/folders/* || $p == /private/var/folders/* ]] && DISP="macOS temp: ${p##*/}" ;;
+    esac
+}
+
+remove_leftovers() {
+    local i n=0 p need_sudo=0
+    for i in "${!LO_PATH[@]}"; do
+        (( IT_ON[i] )) || continue
+        [[ ${LO_KIND[i]} == receipt || ${LO_PATH[i]} == /Library/Launch* ]] && need_sudo=1
+    done
+    title Leftovers
+    if (( need_sudo )); then note 'a few of these need your Mac password:'; cooked; sudo -v; raw; fi
+    for i in "${!LO_PATH[@]}"; do
+        (( IT_ON[i] )) || continue
+        p=${LO_PATH[i]}; lo_display "$i"
+        case ${LO_KIND[i]} in
+            receipt)
+                cooked; sudo pkgutil --forget "$p" >/dev/null 2>&1; raw
+                ok "forgot installer receipt $p"; n=$(( n + 1 )) ;;
+            login)
+                if osascript -e "tell application \"System Events\" to delete login item \"$p\"" >/dev/null 2>&1; then ok "removed login item $p"; n=$(( n + 1 ))
+                else fail "couldn't remove login item $p"; fi ;;
+            *)
+                case $p in   # stop background helpers before their files go
+                    "$HOME/Library/LaunchAgents/"*) launchctl bootout "gui/$(id -u)" "$p" >/dev/null 2>&1 ;;
+                    /Library/LaunchAgents/*|/Library/LaunchDaemons/*) cooked; sudo launchctl bootout system "$p" >/dev/null 2>&1; raw ;;
+                esac
+                if to_trash "$p" || { [[ $p == "$HOME"/* || $p == /var/folders/* || $p == /private/var/folders/* ]] && rm -rf "$p" 2>/dev/null && [[ ! -e $p ]]; }; then
+                    ok "cleared $DISP"; n=$(( n + 1 ))
+                else
+                    fail "couldn't remove $DISP"
+                fi ;;
+        esac
+    done
+    log_it "leftovers: cleared $n item(s)"
+}
+
+footer_app() {  # selected size + the app's bundle id and location
+    local i=${APP_IDX[$1]}
+    footer_size; limit "${APP_BID[i]:-no bundle id}  ${APP_PATH[i]/#$HOME/\~}" 44
+    FOOT+="   ${C_DIM}${LIMIT}${R}"
+}
+footer_leftover() {
+    local p=${LO_PATH[$1]}
+    footer_size
+    [[ $p == /Library/* ]] && FOOT+="   ${C_WARN}needs your password${R}"
+    [[ ${LO_WHY[$1]} == spotlight ]] && FOOT+="   ${C_WARN}found by Spotlight - double-check it${R}"
 }
 
 do_uninstall() {
-    local apps=() names=() bids=() kbs=() a bid i n chosen=() line q lq
-    title 'Uninstall apps'; info 'reading your apps...'
-    for a in /Applications/*.app "$HOME/Applications"/*.app; do
-        bid=$(defaults read "$a/Contents/Info" CFBundleIdentifier 2>/dev/null)
-        [[ $bid == com.apple.* ]] && continue      # macOS's own apps stay
-        apps+=("$a"); names+=("$(basename "$a" .app)"); bids+=("$bid")
-    done
-    if (( ${#apps[@]} )); then
-        while read -r line; do kbs+=("${line%%[[:space:]]*}"); done < <(du -sk "${apps[@]}" 2>/dev/null)
-    fi
+    local i k n q lq chosen=() idx=() sz
+    title 'Uninstall apps'; info 'finding every app (your Applications folders + Spotlight)...'
+    collect_apps
     while true; do
         title 'Uninstall apps'
         note 'type part of a name to search, Enter to list everything, Esc to go back'
-        note "macOS's own apps aren't listed · bulk job? Pearcleaner is in the Toolbox (T)"; echo
+        note "sorted by last used, oldest first · macOS's protected apps aren't listed"; echo
         read_line search || return
-        q=$LINE; lq=$(printf '%s' "$q" | tr 'A-Z' 'a-z')
-        IT_TEXT=(); IT_ON=(); local idx=()
-        for i in "${!apps[@]}"; do
-            if [[ -n $lq ]] && [[ $(printf '%s' "${names[i]}" | tr 'A-Z' 'a-z') != *"$lq"* ]]; then continue; fi
-            fmt_kb "${kbs[i]:-0}"; limit "${names[i]}" 36; spaces "$(( 9 - ${#SIZE} ))"; local nm=$LIMIT
-            limit "${bids[i]}" 15
-            IT_TEXT+=("$C_TEXT$nm$R$C_DIM$SP$SIZE  $LIMIT$R"); IT_ON+=(0); idx+=("$i")
+        q=$LINE; lower "$q"; lq=$LOWER
+        IT_TEXT=(); IT_ON=(); IT_KB=(); idx=()
+        for i in "${!APP_PATH[@]}"; do
+            if [[ -n $lq ]]; then lower "${APP_NAME[i]} ${APP_BID[i]}"; [[ $LOWER == *"$lq"* ]] || continue; fi
+            fmt_kb "${APP_KB[i]:-0}"; sz=$SIZE
+            if (( ${APP_USED[i]:-0} > 0 )); then fmt_age "${APP_USED[i]}"; else AGE='never used'; fi
+            limit "${APP_NAME[i]}" 32; spaces "$(( 10 - ${#sz} ))"
+            IT_TEXT+=("${C_TEXT}${LIMIT}${R}${C_DIM}${SP}${sz}   ${AGE}${R}"); IT_ON+=(0); IT_KB+=("${APP_KB[i]:-0}"); idx+=("$i")
         done
         if (( ${#idx[@]} == 0 )); then echo; warn "nothing matches '$q'"; wait_back; continue; fi
-        picker 'Uninstall apps' 'select the apps to remove - they go to the Trash' multi || continue
-        chosen=(); for i in "${!idx[@]}"; do (( IT_ON[i] )) && chosen+=("${idx[i]}"); done
+        APP_IDX=("${idx[@]}")
+        picker 'Uninstall apps' 'pick apps - they go to the Trash, then VOID hunts their leftovers' multi footer_app || continue
+        chosen=(); for k in "${!APP_IDX[@]}"; do (( IT_ON[k] )) && chosen+=("${APP_IDX[k]}"); done
         (( ${#chosen[@]} )) || continue
         title 'Uninstall apps'
-        for i in "${chosen[@]}"; do note "  - ${names[i]}"; done; echo
+        for i in "${chosen[@]}"; do note "  - ${APP_NAME[i]}   ${APP_PATH[i]/#$HOME/\~}"; done; echo
         confirm "move these ${#chosen[@]} to the Trash?" || continue
         echo
-        LO_PATH=(); LO_KB=()
+        LO_PATH=(); LO_KB=(); LO_WHY=(); LO_KIND=()
         for i in "${chosen[@]}"; do
-            info "removing ${names[i]}"
-            [[ -n ${bids[i]} ]] && osascript -e "quit app id \"${bids[i]}\"" >/dev/null 2>&1
-            if to_trash "${apps[i]}"; then
-                ok "${names[i]} moved to the Trash"; log_it "uninstalled ${names[i]}"
-                find_leftovers "${names[i]}" "${bids[i]}"
+            info "removing ${APP_NAME[i]}"
+            [[ -n ${APP_BID[i]} ]] && osascript -e "quit app id \"${APP_BID[i]}\"" >/dev/null 2>&1
+            if to_trash "${APP_PATH[i]}"; then
+                ok "${APP_NAME[i]} moved to the Trash"; log_it "uninstalled ${APP_NAME[i]}"
+                printf '%s  %sdeep-scanning for leftovers...%s' "$P" "$C_DIM" "$R"
+                find_leftovers "$i"
+                printf '\r\e[K'
             else
-                fail "${names[i]}: couldn't move it (Terminal may need permission to control Finder)"
+                fail "${APP_NAME[i]}: couldn't move it (Terminal may need permission to control Finder)"
             fi
         done
         if (( ${#LO_PATH[@]} )); then
             echo; info "found ${#LO_PATH[@]} leftover item(s)..."; sleep 0.9
             IT_TEXT=(); IT_ON=(); IT_KB=()
             for i in "${!LO_PATH[@]}"; do
-                fmt_kb "${LO_KB[i]}"; limit "${LO_PATH[i]/#$HOME/\~}" 50; spaces "$(( 9 - ${#SIZE} ))"
-                IT_TEXT+=("$C_TEXT$LIMIT$R$C_DIM$SP$SIZE$R"); IT_ON+=(1); IT_KB+=("${LO_KB[i]}")
+                lo_display "$i"; fmt_kb "${LO_KB[i]}"; sz=$SIZE; [[ ${LO_KIND[i]} != file ]] && sz=''
+                limit "$DISP" 40; local d=$LIMIT; spaces "$(( 9 - ${#sz} ))"
+                IT_TEXT+=("${C_TEXT}${d}${R}${C_DIM}${SP}${sz}  ${LO_WHY[i]}${R}"); IT_KB+=("${LO_KB[i]}")
+                if [[ ${LO_WHY[i]} == spotlight ]]; then IT_ON+=(0); else IT_ON+=(1); fi
             done
-            if picker Leftovers 'what the apps left in ~/Library - it goes to the Trash' multi footer_size; then
-                title Leftovers; n=0
-                for i in "${!LO_PATH[@]}"; do
-                    (( IT_ON[i] )) || continue
-                    if to_trash "${LO_PATH[i]}"; then ok "trashed ${LO_PATH[i]/#$HOME/\~}"; n=$(( n + 1 )); else fail "${LO_PATH[i]/#$HOME/\~}"; fi
-                done
-                log_it "leftovers: trashed $n item(s)"
+            if picker Leftovers "what the apps left behind - files go to the Trash" multi footer_leftover; then
+                remove_leftovers
             fi
+        else
+            ok 'no leftovers found - clean uninstall'
         fi
-        # refresh the list without the removed apps
-        for i in "${chosen[@]}"; do [[ -e ${apps[i]} ]] || { names[i]=''; }; done
-        local na=() nn=() nb=() nk=()
-        for i in "${!apps[@]}"; do [[ -n ${names[i]} ]] && { na+=("${apps[i]}"); nn+=("${names[i]}"); nb+=("${bids[i]}"); nk+=("${kbs[i]}"); }; done
-        apps=("${na[@]}"); names=("${nn[@]}"); bids=("${nb[@]}"); kbs=("${nk[@]}")
+        prune_apps
         wait_back
     done
 }
@@ -1242,6 +1424,28 @@ if [[ $CMD == __selftest ]]; then
     echo "launch: read $n launch items"
     for i in "${!T_NAME[@]}"; do if tool_ready "$i"; then s=ready; else s=get; fi; echo "tool:   ${T_NAME[i]} $s"; done
     is_random GIuychYBxsQ && echo "random: GIuychYBxsQ -> flagged"; is_random GitHubDesktop || echo "random: GitHubDesktop -> fine"
+    t0=$SECONDS; collect_apps
+    echo "apps:   found ${#APP_PATH[@]} apps in $(( SECONDS - t0 ))s"
+    for (( i = 0; i < ${#APP_PATH[@]} && i < 4; i++ )); do
+        fmt_kb "${APP_KB[i]}"; if (( ${APP_USED[i]:-0} > 0 )); then fmt_age "${APP_USED[i]}"; else AGE='never used'; fi
+        echo "app:    ${APP_NAME[i]} | ${APP_BID[i]:-no id} | $SIZE | $AGE | ${APP_PATH[i]}"
+    done
+    # deep-scan test: a throwaway fake app with leftovers where real apps leave them, plus look-alikes that must NOT match
+    fb=io.github.voidselftest.fakeapp; fn='Fake Void Test'; L="$HOME/Library"
+    mkdir -p "$VOID_HOME/$fn.app/Contents" "$L/Application Support/$fn" "$L/Caches/$fb" "$L/Saved Application State/$fb.savedState" \
+             "$L/Application Support/FakeVendorVoid/$fn" "$L/Group Containers/ABCDE12345.$fb" "$L/Preferences" "$L/Logs/DiagnosticReports" \
+             "$L/Caches/${fb}canary" "$L/Application Support/$fn Canary"
+    touch "$L/Preferences/$fb.plist" "$L/Logs/DiagnosticReports/${fn}_2026-01-01-000000_mac.ips"
+    APP_PATH=("$VOID_HOME/$fn.app"); APP_NAME=("$fn"); APP_BID=("$fb"); APP_EXEC=(FakeVoidTest); APP_CFNAME=("$fn")
+    LO_PATH=(); LO_KB=(); LO_WHY=(); LO_KIND=(); find_leftovers 0
+    for i in "${!LO_PATH[@]}"; do echo "leftover: [${LO_WHY[i]}] ${LO_PATH[i]/#$HOME/~}"; done
+    bad=0; for x in "${LO_PATH[@]}"; do [[ $x == *canary* || $x == *Canary* ]] && bad=1; done
+    rm -rf "$VOID_HOME/$fn.app" "$L/Application Support/$fn" "$L/Caches/$fb" "$L/Saved Application State/$fb.savedState" \
+           "$L/Application Support/FakeVendorVoid" "$L/Group Containers/ABCDE12345.$fb" "$L/Caches/${fb}canary" \
+           "$L/Application Support/$fn Canary" "$L/Preferences/$fb.plist" "$L/Logs/DiagnosticReports/${fn}_2026-01-01-000000_mac.ips"
+    (( bad )) && { echo "FAIL: matched a look-alike app's data"; exit 1; }
+    (( ${#LO_PATH[@]} == 7 )) || { echo "FAIL: expected 7 leftovers, found ${#LO_PATH[@]}"; exit 1; }
+    echo "deep scan: found all 7 leftovers, ignored both look-alikes"
     main_lines; status_lines 10 20 30
     echo "render: ${#MAIN[@]} main lines, ${#STATUS[@]} status lines"
     for line in "${MAIN[@]}" "${STATUS[@]}"; do vislen "$line"; (( VL > COLS )) && { echo "FAIL: line wider than the screen ($VL)"; exit 1; }; done

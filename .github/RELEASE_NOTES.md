@@ -1,9 +1,16 @@
-## VOID 1.3 🕳️
+## VOID 1.4 🕳️
 
-**New: VOID for Mac is now a real app.** Download `VOID-macOS.dmg`, drag VOID into Applications, done.
+### 🍎 A much deeper uninstaller on macOS
+- **Finds every app**: your Applications folders *and* anything Spotlight knows about (apps living in Downloads, subfolders...), with size and **when you last used it**, oldest first
+- **Deep leftover scan** after uninstalling, like the paid cleaners:
+  - 30+ locations: Caches, Preferences (+ ByHost), Saved Application State, Containers, Group Containers, Application Support (+ vendor subfolders), HTTPStorages, WebKit, Cookies, Logs, crash reports, LaunchAgents/Daemons, PrivilegedHelperTools, audio plug-ins, macOS temp folders, `~/.config`...
+  - matches by **bundle ID**, app name *and* the app's internal name (VS Code's data lives in `Code`)
+  - look-alike apps are left alone: uninstalling Discord won't touch Discord Canary
+  - a Spotlight sweep for anything else named after the app (unticked, for you to review)
+  - installer **receipts** and **login items** too
+  - everything goes to the Trash, and background helpers are stopped first
 
 ### ⬇️ Downloads
-
 | | |
 |---|---|
 | 🍎 **macOS** | `VOID-macOS.dmg`: open it, drag **VOID** to **Applications** |
@@ -11,26 +18,5 @@
 
 Or install with one line: see the [README](https://github.com/kelcum/void#-install).
 
-### ✨ What's in it
-- **Clean junk**: temp files, caches, crash dumps, update leftovers, the lot, with sizes shown before anything goes
-- **Uninstall apps** plus a sweep for the folders they leave behind
-- **Fix stuck apps** (Windows) / **Fix launch items** (macOS)
-- **Old installers**, **Dev junk** (`node_modules`, venvs, build caches), **Disk space**, **Optimize**, **Update everything**
-- **Live status** dashboard with a health score
-- **Speed test** (new): download, upload, latency and jitter with live graphs, powered by [cloudflare-speed-cli](https://github.com/kavehtehrani/cloudflare-speed-cli)
-- **Toolbox** of open-source GitHub tools, installed when you pick them
-- **Suspicious scan**, **Virus scan**, **History**
-- animated intro, six themes, arrow-key menus
-
 ### 🍎 First time opening the Mac app
-VOID is free and open source, so it isn't notarized by Apple (that needs a paid developer account). The first time:
-1. Open VOID. macOS says it can't check it for malware. Click **Done**.
-2. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
-3. When VOID asks to control **Terminal**, click **Allow**, since that's where its menu runs.
-
-After that it opens like any other app. Terminal fans can run `xattr -dr com.apple.quarantine /Applications/VOID.app` instead.
-
-### 🪟 First time on Windows
-If SmartScreen says *"Windows protected your PC"* when you run `Install VOID.cmd`, click **More info → Run anyway**.
-
-> The macOS version is still **beta**. Every release is tested on a real Mac by the build workflow, but if something looks off, [open an issue](https://github.com/kelcum/void/issues).
+VOID isn't notarized by Apple (that needs a paid developer account). The first time, open it, click **Done**, then go to **System Settings → Privacy & Security → Open Anyway**, and allow it to control **Terminal**. Terminal fans: `xattr -dr com.apple.quarantine /Applications/VOID.app`

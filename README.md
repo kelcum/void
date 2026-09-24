@@ -118,7 +118,7 @@ Windows warns about new downloads it hasn't seen much of. Click **More info → 
 | | Tool | Windows | macOS |
 |:-:|---|---|---|
 | **1** | **Clean junk** | temp files, crash dumps, error reports, Windows Update leftovers, browser + Discord caches, npm/pip caches, shader caches, Recycle Bin | app caches, logs, Xcode DerivedData, simulator caches, npm + Discord caches, Trash |
-| **2** | **Uninstall apps** | search → pick → uninstall, then sweeps leftover folders in AppData / ProgramData / Program Files | moves apps to the Trash, then sweeps what they left in `~/Library` |
+| **2** | **Uninstall apps** | search → pick → uninstall, then sweeps leftover folders in AppData / ProgramData / Program Files | finds **every** app (Spotlight too), sorted by last used, then a **deep leftover scan**: 30+ `~/Library` + `/Library` spots, bundle-ID matching, crash reports, helpers, audio plug-ins, installer receipts, login items |
 | **3** | **Fix stuck apps** / **launch items** | removes apps stuck in *Settings → Apps* whose files are already gone (e.g. games from a Steam account you lost) | removes launch agents that point at apps you already deleted |
 | **4** | **Old installers** | `.exe` `.msi` `.iso` in Downloads + Desktop | `.dmg` `.pkg` `.iso` `.xip` in Downloads + Desktop |
 | **5** | **Dev junk** | `node_modules`, venvs, `__pycache__`, build caches in your projects | same |

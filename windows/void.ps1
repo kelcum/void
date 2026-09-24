@@ -8,7 +8,7 @@
 #>
 param([string]$Command = '', [switch]$SelfTest, [switch]$Preview, [switch]$Screens)
 
-$VoidVersion  = '1.3'
+$VoidVersion  = '1.4'
 $VoidHome     = $PSScriptRoot
 $BackupDir    = Join-Path $VoidHome 'backups'
 $HistoryFile  = Join-Path $VoidHome 'history.log'
