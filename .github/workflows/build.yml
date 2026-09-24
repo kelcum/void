@@ -25,7 +25,9 @@ jobs:
           export VOID_HOME="$RUNNER_TEMP/void"
           /bin/bash mac/void.sh help
           /bin/bash mac/void.sh __selftest
-          /bin/bash mac/void.sh __render > render.txt
+          time /bin/bash mac/void.sh __render > render.txt 2> render.err || echo "render exited with $?"
+          echo "--- stderr:"; cat render.err
+          echo "--- $(wc -l < render.txt) lines, STORAGE found: $(grep -c STORAGE render.txt || true)"
           grep -q STORAGE render.txt
 
   test-windows:

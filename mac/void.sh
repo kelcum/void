@@ -16,11 +16,11 @@ export LC_ALL=en_US.UTF-8     # character counts and substrings must be UTF-8 aw
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 shopt -s extglob nullglob
 
-COMMANDS=(clean uninstall fix installers purge status disk optimize update tools scan virus history remove)
+COMMANDS=(clean uninstall fix installers purge status disk optimize update speed tools scan virus history remove)
 COMMAND_DESC=("clean junk files" "uninstall apps + their leftovers" "remove launch items whose app is gone"
               "old installers in Downloads / Desktop" "dev junk: node_modules, venvs, build caches"
               "live system dashboard" "what's eating your storage" "flush DNS, free memory, rebuild caches..."
-              "update everything with Homebrew" "GitHub power tools (btop, dua, Stats...)"
+              "update everything with Homebrew" "internet speed test (Cloudflare)" "GitHub power tools (btop, dua, Stats...)"
               "suspicious launch agents + login items" "malware second opinion" "what VOID has done" "uninstall VOID itself")
 
 CMD=$(printf '%s' "${1:-}" | tr 'A-Z' 'a-z'); CMD=${CMD#--}
@@ -80,7 +80,17 @@ term_size() { COLS=$(tput cols 2>/dev/null || echo 100); ROWS=$(tput lines 2>/de
 pad_for() { local n=$(( (COLS - $1) / 2 )); (( n < 0 )) && n=0; printf -v PAD '%*s' "$n" ''; }
 spaces() { printf -v SP '%*s' "$(( $1 > 0 ? $1 : 0 ))" ''; }
 rep() { local s; printf -v s '%*s' "$(( $2 > 0 ? $2 : 0 ))" ''; REP=${s// /$1}; }
-vislen() { local t=${1//${E}\[*([0-9;])m/}; VL=${#t}; }
+# visible length (colour codes don't count). Splits on ESC and drops each "[...m" -
+# extglob pattern replacement does the same but takes ~0.3s per line on the bash 3.2 macOS ships.
+vislen() {
+    local IFS=$E p n=0 first=1
+    set -f; local parts=($1); set +f
+    for p in "${parts[@]}"; do
+        if (( first )); then first=0; else p=${p#*m}; fi
+        n=$(( n + ${#p} ))
+    done
+    VL=$n
+}
 cls() { printf '\e[H\e[2J'; }
 at_row() { printf '\e[%d;1H' "$(( $1 + 1 ))"; }
 
@@ -471,11 +481,11 @@ show_outro() {
 }
 
 # ── main screen ────────────────────────────────────────────────────────
-MENU_KEYS=(1 2 3 4 5 6 7 8 9 t s v h '?')
+MENU_KEYS=(1 2 3 4 5 6 7 8 9 t s v h '?' 0)
 MENU_NAMES=("Clean junk" "Uninstall apps" "Fix launch items" "Old installers" "Dev junk" "Live status" "Disk space"
-            "Optimize" "Update everything" "Toolbox" "Suspicious scan" "Virus check" "History" "Commands")
-MENU_FN=(do_clean do_uninstall do_fix do_installers do_purge do_status do_disk do_optimize do_update do_tools do_scan do_virus do_history do_commands)
-MENU_CMD=(clean uninstall fix installers purge status disk optimize update tools scan virus history '')
+            "Optimize" "Update everything" "Toolbox" "Suspicious scan" "Virus check" "History" "Commands" "Speed test")
+MENU_FN=(do_clean do_uninstall do_fix do_installers do_purge do_status do_disk do_optimize do_update do_tools do_scan do_virus do_history do_commands do_speed)
+MENU_CMD=(clean uninstall fix installers purge status disk optimize update tools scan virus history '' speed)
 MENU_DESC=("app caches, logs, Xcode leftovers, npm + Discord caches, the Trash"
            "search, pick, trash - then sweep what they left in ~/Library"
            "remove launch agents that point at apps you already deleted"
@@ -489,9 +499,10 @@ MENU_DESC=("app caches, logs, Xcode leftovers, npm + Discord caches, the Trash"
            "sketchy launch agents, daemons and login items"
            "a second opinion next to XProtect - Malwarebytes or KnockKnock"
            "everything VOID has cleaned, removed and fixed"
-           'shortcuts like "void status" you can type in any terminal')
-LEFT=(CLEAN 1 2 3 4 5 '' SAFETY s v)
-RIGHT=(SYSTEM 6 7 8 9 t '' EXTRA h '?')
+           'shortcuts like "void status" you can type in any terminal'
+           "how fast is your internet? - Cloudflare speed test with live graphs")
+LEFT=(CLEAN 1 2 3 4 5 '' SAFETY s v '')
+RIGHT=(SYSTEM 6 7 8 9 0 '' EXTRA t h '?')
 NAV_SIDE=(); NAV_ROW=(); NAV_KEY=()
 for (( i = 0; i < ${#LEFT[@]}; i++ )); do
     for side in 0 1; do
@@ -1083,6 +1094,32 @@ do_tools() {
     done
 }
 footer_tools() { FOOT="$C_ACC▸$R $C_TEXT${T_DESC[$1]}$R"; }
+
+# ── 0. speed test (github.com/kavehtehrani/cloudflare-speed-cli) ─────────
+do_speed() {
+    local line
+    if ! command -v cloudflare-speed-cli >/dev/null; then
+        title 'Speed test'
+        info "the speed test runs cloudflare-speed-cli - open source, tests against Cloudflare's network"
+        note 'github.com/kavehtehrani/cloudflare-speed-cli'; note 'installs with: brew install cloudflare-speed-cli'; echo
+        ensure_brew || { wait_back; return; }
+        confirm 'install it?' || return
+        echo; cooked; brew install cloudflare-speed-cli; raw
+        command -v cloudflare-speed-cli >/dev/null || { fail "couldn't find cloudflare-speed-cli after installing"; wait_back; return; }
+        log_it 'installed cloudflare-speed-cli'
+    fi
+    title 'Speed test'
+    info "download, upload, latency and jitter against Cloudflare's network"
+    note 'the live dashboard has graphs and history - press q inside it to come back'; echo
+    keys enter 'live dashboard' t 'quick text result' esc back; printf '%s  %s\n' "$P" "$KEYS"
+    wait_key
+    case $KEY in
+        enter) cls; cooked; cloudflare-speed-cli; raw; log_it 'ran a speed test' ;;
+        t|T)   echo; info 'testing... (takes about 20 seconds)'; echo; cooked
+               cloudflare-speed-cli --text 2>&1 | while IFS= read -r line; do printf '%s  %s\n' "$P" "$line"; done
+               raw; log_it 'ran a speed test'; wait_back ;;
+    esac
+}
 
 # ── S. suspicious scan ─────────────────────────────────────────────────
 is_random() {  # "GIuychYBxsQ" yes, "GitHubDesktop" no

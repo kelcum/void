@@ -17,6 +17,7 @@ Or install with one line: see the [README](https://github.com/kelcum/void#-insta
 - **Fix stuck apps** (Windows) / **Fix launch items** (macOS)
 - **Old installers**, **Dev junk** (`node_modules`, venvs, build caches), **Disk space**, **Optimize**, **Update everything**
 - **Live status** dashboard with a health score
+- **Speed test** (new): download, upload, latency and jitter with live graphs, powered by [cloudflare-speed-cli](https://github.com/kavehtehrani/cloudflare-speed-cli)
 - **Toolbox** of open-source GitHub tools, installed when you pick them
 - **Suspicious scan**, **Virus scan**, **History**
 - animated intro, six themes, arrow-key menus

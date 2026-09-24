@@ -126,6 +126,7 @@ Windows warns about new downloads it hasn't seen much of. Click **More info → 
 | **7** | **Disk space** | drives, biggest apps, Steam game sizes, <kbd>D</kbd> to explore with `dua` | drives, biggest apps, home folder, <kbd>D</kbd> to explore with `dua` |
 | **8** | **Optimize** | flush DNS, TRIM SSDs, refresh icons, DISM cleanup, `sfc /scannow` | flush DNS, free memory, refresh Quick Look, Homebrew cleanup, rebuild Spotlight |
 | **9** | **Update everything** | every app at once via `winget` | every app at once via Homebrew (+ `mas`) |
+| **0** | **Speed test** | download, upload, latency + jitter with live graphs, via [cloudflare-speed-cli](https://github.com/kavehtehrani/cloudflare-speed-cli) (official build, SHA-256 checked) | same tool, via Homebrew |
 | **T** | **Toolbox** | btop, bottom, dua, Czkawka, BCUninstaller, fastfetch, WinUtil | btop, bottom, dua, fastfetch, Stats, Pearcleaner, dupeGuru, KnockKnock, Mole |
 | **S** | **Suspicious scan** | random-named apps, sketchy startup entries + scheduled tasks | sketchy launch agents, daemons + login items |
 | **V** | **Virus scan** | Defender quick scan (or opens Malwarebytes) | opens Malwarebytes or KnockKnock |
@@ -148,6 +149,7 @@ void status       live dashboard
 void disk         disk space
 void optimize     optimize
 void update       update everything
+void speed        internet speed test
 void tools        toolbox
 void scan         suspicious scan
 void virus        virus scan
@@ -162,7 +164,7 @@ void remove       uninstall VOID
 | <kbd>Enter</kbd> | open / confirm |
 | <kbd>Space</kbd> | tick or untick an item |
 | <kbd>A</kbd> | tick / untick everything |
-| <kbd>1</kbd>–<kbd>9</kbd> <kbd>T</kbd> <kbd>S</kbd> <kbd>V</kbd> <kbd>H</kbd> | jump to a tool |
+| <kbd>0</kbd>–<kbd>9</kbd> <kbd>T</kbd> <kbd>S</kbd> <kbd>V</kbd> <kbd>H</kbd> | jump to a tool |
 | <kbd>C</kbd> | next theme |
 | <kbd>Esc</kbd> / <kbd>Q</kbd> | back / quit |
 
@@ -178,7 +180,7 @@ VOID would rather skip something than break your PC.
 - **Hands off the essentials**: drivers, Visual C++ / .NET runtimes, WebView2 and macOS's own apps are never offered for removal.
 - **Files in use are skipped**, never forced.
 - **Everything is logged**: press <kbd>H</kbd> to see what VOID has done.
-- **Toolbox installs only when you say so**, through `winget` or Homebrew (WinUtil runs from Chris Titus' official site, after you confirm).
+- **Toolbox installs only when you say so**, through `winget` or Homebrew. WinUtil runs from Chris Titus' official site, and the Windows speed test is the official GitHub build, checked against its SHA-256, both after you confirm.
 
 ---
 
@@ -207,7 +209,8 @@ Removes VOID, its shortcuts, the `void` command, and its history/backups.
   [Stats](https://github.com/exelban/stats) ·
   [Pearcleaner](https://github.com/alienator88/Pearcleaner) ·
   [dupeGuru](https://github.com/arsenetar/dupeguru) ·
-  [KnockKnock](https://github.com/objective-see/KnockKnock)
+  [KnockKnock](https://github.com/objective-see/KnockKnock) ·
+  [cloudflare-speed-cli](https://github.com/kavehtehrani/cloudflare-speed-cli)
 
 > **macOS is in beta.** It's written for the stock bash that ships with every Mac and uses only built-in macOS commands. Every release is tested on a real Mac by the [build workflow](../../actions), but it hasn't had much real-world mileage yet. If something looks off, [open an issue](../../issues).
 

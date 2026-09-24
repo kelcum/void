@@ -25,6 +25,7 @@ $Commands = [ordered]@{
     disk       = "what's eating your storage"
     optimize   = 'flush DNS, TRIM SSDs, repair Windows...'
     update     = 'update all apps with winget'
+    speed      = 'internet speed test (Cloudflare)'
     tools      = 'GitHub power tools (btop, dua, Czkawka...)'
     scan       = 'suspicious scan'
     virus      = 'virus scan'
@@ -603,6 +604,7 @@ $Menu = @(
     @{ Key = '7'; Name = 'Disk space';        Cmd = 'disk';       Run = { Show-DiskSpace };        Desc = "what's eating your storage - press D inside to explore with dua" }
     @{ Key = '8'; Name = 'Optimize';          Cmd = 'optimize';   Run = { Invoke-Optimize };       Desc = 'flush DNS, TRIM SSDs, refresh icons, repair Windows' }
     @{ Key = '9'; Name = 'Update everything'; Cmd = 'update';     Run = { Invoke-UpdateAll };      Desc = 'update every app at once with winget' }
+    @{ Key = '0'; Name = 'Speed test';        Cmd = 'speed';      Run = { Invoke-SpeedTest };      Desc = "how fast is your internet? - Cloudflare speed test with live graphs" }
     @{ Key = 't'; Name = 'Toolbox';           Cmd = 'tools';      Run = { Invoke-Toolbox };        Desc = 'GitHub power tools: btop, dua, Czkawka, fastfetch, WinUtil...' }
     @{ Key = 's'; Name = 'Suspicious scan';   Cmd = 'scan';       Run = { Invoke-SuspiciousScan }; Desc = 'random-named apps, sketchy startup entries and scheduled tasks' }
     @{ Key = 'v'; Name = 'Virus scan';        Cmd = 'virus';      Run = { Invoke-VirusScan };      Desc = 'Defender quick scan, or opens Malwarebytes' }
@@ -610,8 +612,8 @@ $Menu = @(
     @{ Key = '?'; Name = 'Commands';          Cmd = '';           Run = { Show-Commands };         Desc = 'shortcuts like "void status" you can type in Win+R' }
     @{ Key = '';  Name = 'Remove VOID';       Cmd = 'remove';     Run = { Remove-Void };           Desc = '' }
 )
-$MenuLeft  = 'CLEAN', '1', '2', '3', '4', '5', '', 'SAFETY', 's', 'v'
-$MenuRight = 'SYSTEM', '6', '7', '8', '9', 't', '', 'EXTRA', 'h', '?'
+$MenuLeft  = 'CLEAN', '1', '2', '3', '4', '5', '', 'SAFETY', 's', 'v', ''
+$MenuRight = 'SYSTEM', '6', '7', '8', '9', '0', '', 'EXTRA', 't', 'h', '?'
 $NavCells = @(for ($i = 0; $i -lt $MenuLeft.Count; $i++) {
     foreach ($side in 0, 1) {
         $id = if ($side -eq 0) { $MenuLeft[$i] } else { $MenuRight[$i] }
@@ -1369,6 +1371,87 @@ function Invoke-Toolbox {
             -Footer { param($list, $at) "$($Col.Acc)▸$R $($Col.Text)$($list[$at].Tool.Desc)$R" }
         if ($pick -lt 0) { return }
         Invoke-Tool $items[$pick].Tool
+    }
+}
+
+# ── 0. speed test (github.com/kavehtehrani/cloudflare-speed-cli) ─────────
+$SpeedRepo = 'kavehtehrani/cloudflare-speed-cli'
+$SpeedDir  = Join-Path $VoidHome 'tools\cloudflare-speed-cli'
+
+function Get-SpeedExe {
+    $cmd = Get-Command cloudflare-speed-cli -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    if (Test-Path -LiteralPath $SpeedDir) {
+        $hit = Get-ChildItem -LiteralPath $SpeedDir -Recurse -File -Filter 'cloudflare-speed-cli.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+    $null
+}
+
+function Get-SpeedRelease {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $rel = Invoke-RestMethod -UseBasicParsing -ErrorAction Stop -Uri "https://api.github.com/repos/$SpeedRepo/releases/latest" -Headers @{ 'User-Agent' = 'VOID' }
+    $zip = $rel.assets | Where-Object { $_.name -like '*x86_64-pc-windows-msvc.zip' } | Select-Object -First 1
+    $sum = $rel.assets | Where-Object { $zip -and $_.name -eq "$($zip.name).sha256" } | Select-Object -First 1
+    if (-not $zip -or -not $sum) { throw "the latest release ($($rel.tag_name)) has no Windows build" }
+    [pscustomobject]@{ Tag = $rel.tag_name; Zip = $zip; Sum = $sum }
+}
+
+# it isn't on winget, so: the official Windows build from the project's GitHub releases, checked against its SHA-256
+function Install-SpeedTool($Release) {
+    $ProgressPreference = 'SilentlyContinue'   # the PowerShell 5.1 progress bar makes downloads crawl
+    $tmp = Join-Path $env:TEMP ('void-speed-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+        $zipPath = Join-Path $tmp $Release.Zip.name
+        Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $Release.Zip.browser_download_url -OutFile $zipPath
+        $raw = (Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $Release.Sum.browser_download_url).Content
+        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::ASCII.GetString($raw) }
+        $expected = ([string]$raw).Trim().Split(" `t`r`n", [StringSplitOptions]::RemoveEmptyEntries)[0]
+        $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+        if ($actual -ne $expected) { throw 'the download failed its SHA-256 check - it was thrown away' }
+        New-Item -ItemType Directory -Force -Path $SpeedDir | Out-Null
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $SpeedDir -Force
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-SpeedTest {
+    $exe = Get-SpeedExe
+    if (-not $exe) {
+        Show-Title 'Speed test'
+        Info "the speed test runs cloudflare-speed-cli - open source, tests against Cloudflare's network"
+        Note "github.com/$SpeedRepo"
+        Out-Line
+        Info 'checking the latest release...'
+        try { $rel = Get-SpeedRelease } catch { Fail "couldn't reach GitHub: $($_.Exception.Message)"; Wait-Back; return }
+        Note "not on winget, so VOID downloads the official Windows build ($($rel.Tag), $(Format-Size $rel.Zip.size))"
+        Note 'from its GitHub releases and checks it against the published SHA-256'
+        Out-Line
+        if (-not (Confirm-Action 'download it?')) { return }
+        try {
+            Install-SpeedTool $rel
+            Ok "cloudflare-speed-cli $($rel.Tag) ready"
+            Write-VoidLog "installed cloudflare-speed-cli $($rel.Tag)"
+        } catch { Fail $_.Exception.Message; Wait-Back; return }
+        $exe = Get-SpeedExe
+        if (-not $exe) { Fail 'installed, but the program was not where VOID expected it'; Wait-Back; return }
+    }
+    Show-Title 'Speed test'
+    Info "download, upload, latency and jitter against Cloudflare's network"
+    Note 'the live dashboard has graphs and history - press q inside it to come back'
+    Out-Line
+    Out-Line "$script:P  $(Get-Keys 'enter', 'live dashboard', 't', 'quick text result', 'esc', 'back')"
+    $k = [Console]::ReadKey($true)
+    if ($k.Key -eq 'Enter') {
+        Clear-Host; Set-Cursor $true; & $exe; Set-Cursor $false
+        Write-VoidLog 'ran a speed test'
+    } elseif ([string]$k.KeyChar -eq 't') {
+        Out-Line; Info 'testing... (takes about 20 seconds)'; Out-Line
+        & $exe --text 2>&1 | ForEach-Object { Out-Line "$script:P  $_" }
+        Write-VoidLog 'ran a speed test'
+        Wait-Back
     }
 }
 
