@@ -149,17 +149,17 @@ box() {
     BOX=()
     if [[ -n $title ]]; then
         grad '╭─ ' 0 "$w"; head=$GRAD
-        rep '─' "$(( inner - 3 - ${#title} ))"; grad " $REP╮" "$(( ${#title} + 3 ))" "$w"
+        rep '─' "$(( inner - 3 - ${#title} ))"; grad " ${REP}╮" "$(( ${#title} + 3 ))" "$w"
         BOX+=("$head$BOLD$C_TEXT$title$R$GRAD")
     else
-        rep '─' "$inner"; grad "╭$REP╮"; BOX+=("$GRAD")
+        rep '─' "$inner"; grad "╭${REP}╮"; BOX+=("$GRAD")
     fi
     left="${E}[38;2;${A_R};${A_G};${A_B}m│$R"; right="${E}[38;2;${B_R};${B_G};${B_B}m│$R"
     for line in "$@"; do
         vislen "$line"; spaces "$(( w - 4 - VL ))"
         BOX+=("$left $line$SP $right")
     done
-    rep '─' "$inner"; grad "╰$REP╯"; BOX+=("$GRAD")
+    rep '─' "$inner"; grad "╰${REP}╯"; BOX+=("$GRAD")
 }
 
 keys() {  # key label key label ... -> KEYS (little buttons)
@@ -301,7 +301,7 @@ picker() {
         printf '%s%s      %s%s\e[K\n' "$P" "$C_DIM" "$above" "$R"
         for (( i = off; i < end; i++ )); do
             if [[ $mode == single ]]; then mark=''
-            elif (( IT_ON[i] )); then mark="$C_GOOD●$R  "; else mark="$C_DIM○$R  "; fi
+            elif (( IT_ON[i] )); then mark="${C_GOOD}●$R  "; else mark="${C_DIM}○$R  "; fi
             if (( i == pos )); then
                 selrow " $mark${IT_TEXT[i]}" "$(( BLOCK_W - 2 ))"
                 printf '%s %s▌%s%s\e[K\n' "$P" "$C_ACC" "$R" "$SELROW"
@@ -538,7 +538,7 @@ menu_cell() {  # id selected -> CELL (35 wide)
     if [[ $id =~ ^[A-Z][A-Z]+$ ]]; then rep '─' "$(( w - 5 - ${#id} ))"; CELL="  $BOLD$C_PUR$id$R $TRACK$REP$R  "; return; fi
     menu_index "$id"; up=$(printf '%s' "$id" | tr 'a-z' 'A-Z')
     if (( $2 )); then
-        selrow "  $BOLD$C_ACC$up$R  $BOLD$C_WHITE${MENU_NAMES[MI]}$R" "$(( w - 1 ))"; CELL="$C_ACC▌$R$SELROW"
+        selrow "  $BOLD$C_ACC$up$R  $BOLD$C_WHITE${MENU_NAMES[MI]}$R" "$(( w - 1 ))"; CELL="${C_ACC}▌$R$SELROW"
     else
         limit "${MENU_NAMES[MI]}" "$(( w - 6 ))"; CELL="   $C_ACC$up$R  $C_TEXT$LIMIT$R"
     fi
@@ -560,8 +560,8 @@ main_lines() {  # -> MAIN array
         if (( k == 0 )); then limit HD 4; else limit "${DRV_NAME[k]}" 4; fi
         sto+=("$C_TEXT$LIMIT$R $METER $C_DIM$SIZE free$R")
     done
-    if (( JUNK_KB > 204800 )); then fmt_kb "$JUNK_KB"; sto+=("$C_WARN$SIZE of junk$R $C_DIM· press 1$R")
-    else sto+=("$C_GOOD◆$R ${C_DIM}no junk worth cleaning$R"); fi
+    if (( JUNK_KB > 204800 )); then fmt_kb "$JUNK_KB"; sto+=("$C_WARN$SIZE of junk$R ${C_DIM}· press 1$R")
+    else sto+=("${C_GOOD}◆$R ${C_DIM}no junk worth cleaning$R"); fi
     while (( ${#sto[@]} < 3 )); do sto+=(''); done
     (( ${#sto[@]} > 3 )) && sto=("${sto[@]:0:3}")
     box SYSTEM 35 "$s1" "$s2" "$s3"; local bl=("${BOX[@]}")
@@ -575,7 +575,7 @@ main_lines() {  # -> MAIN array
         MAIN+=("$P$l  $r")
     done
     rep '─' "$BLOCK_W"; MAIN+=("$P$TRACK$REP$R")
-    menu_index "${NAV_KEY[SEL]}"; MAIN+=("$P  $C_ACC▸$R $C_TEXT${MENU_DESC[MI]}$R")
+    menu_index "${NAV_KEY[SEL]}"; MAIN+=("$P  ${C_ACC}▸$R $C_TEXT${MENU_DESC[MI]}$R")
     keys '↑↓←→' move enter open c "theme: $THEME" q quit; MAIN+=("$P  $KEYS")
 }
 
@@ -914,7 +914,7 @@ status_lines() {  # history... -> STATUS array
     stat_row DISK "$(( 100 - ST_DISK_FREE_PCT ))" "$ST_DISK_FREE_PCT% free"; live+=("$ROW")
     if [[ -n $ST_BATT ]]; then stat_row BATT "$ST_BATT" "$ST_BATT_STATE" 1; live+=("$ROW"); fi
     fmt_rate "$ST_DOWN"; local down=$RATE; fmt_rate "$ST_UP"; limit "$down" 12
-    live+=("${BOLD}${C_TEXT}NET$R          $C_ACC▼$R $LIMIT $C_PUR▲$R $RATE")
+    live+=("${BOLD}${C_TEXT}NET$R          ${C_ACC}▼$R $LIMIT ${C_PUR}▲$R $RATE")
     printf -v t '%-40s%8s%11s' APP CPU RAM; apps+=("$C_DIM$t$R")
     for t in "${ST_TOP[@]}"; do
         IFS=$'\t' read -r cpu rss cnt name <<< "$t"
@@ -1085,7 +1085,7 @@ do_tools() {
     while true; do
         IT_TEXT=(); IT_ON=()
         for i in "${!T_NAME[@]}"; do
-            if tool_ready "$i"; then state="$C_GOOD● ready$R"; else state="$C_DIM○ get$R"; fi
+            if tool_ready "$i"; then state="${C_GOOD}● ready$R"; else state="${C_DIM}○ get$R"; fi
             limit "${T_NAME[i]}" 14; local nm=$LIMIT; limit "${T_REPO[i]}" 32
             IT_TEXT+=("$BOLD$C_TEXT$nm$R$C_DIM$LIMIT$R  $state"); IT_ON+=(0)
         done
@@ -1093,7 +1093,7 @@ do_tools() {
         run_tool "$PICK"
     done
 }
-footer_tools() { FOOT="$C_ACC▸$R $C_TEXT${T_DESC[$1]}$R"; }
+footer_tools() { FOOT="${C_ACC}▸$R $C_TEXT${T_DESC[$1]}$R"; }
 
 # ── 0. speed test (github.com/kavehtehrani/cloudflare-speed-cli) ─────────
 do_speed() {
